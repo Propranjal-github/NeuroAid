@@ -140,3 +140,38 @@ class Contact(db.Model):
     email = db.Column(db.String(320))
     message = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+# ---------- Utilities: JWT / Auth ----------
+def create_jwt(user_id: int):
+    payload = {
+        "sub": user_id,
+        "iat": datetime.datetime.utcnow().timestamp(),
+        "exp": (datetime.datetime.utcnow() + datetime.timedelta(hours=JWT_EXP_HOURS)).timestamp()
+    }
+    token = jwt.encode(payload, APP_SECRET, algorithm=JWT_ALGO)
+    if isinstance(token, bytes):
+        token = token.decode("utf-8")
+    return token
+
+def decode_jwt(token: str):
+    try:
+        return jwt.decode(token, APP_SECRET, algorithms=[JWT_ALGO])
+    except Exception:
+        return None
+
+def auth_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return jsonify({"error": "Missing token"}), 401
+        token = auth.split(" ", 1)[1]
+        payload = decode_jwt(token)
+        if not payload:
+            return jsonify({"error": "Invalid token"}), 401
+        user = User.query.get(payload["sub"])
+        if not user:
+            return jsonify({"error": "User not found"}), 401
+        g.current_user = user
+        return f(*args, **kwargs)
+    return wrapper
