@@ -34,3 +34,109 @@ app.config["SECRET_KEY"] = APP_SECRET
 
 db = SQLAlchemy(app)
 oauth = OAuth(app)
+
+if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+    oauth.register(
+        name="google",
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        access_token_url="https://oauth2.googleapis.com/token",
+        authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+        api_base_url="https://openidconnect.googleapis.com/v1/",
+        client_kwargs={"scope": "openid email profile"},
+    )
+
+# ---------- Models ----------
+class User(db.Model):
+    __tablename__ = "users"
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(320), unique=True, nullable=True)
+    password_hash = db.Column(db.String(256), nullable=True)
+    google_id = db.Column(db.String(200), unique=True, nullable=True)
+    display_name = db.Column(db.String(120))
+    email_verified = db.Column(db.Boolean, default=False)
+    role = db.Column(db.String(32), default="user")
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+class Assessment(db.Model):
+    __tablename__ = "assessments"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    type = db.Column(db.String(80), nullable=False)
+    answers = db.Column(db.JSON, nullable=False)
+    score = db.Column(db.Float, nullable=False)
+    confidence = db.Column(db.Float, nullable=False)
+    interpretation = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+class Report(db.Model):
+    __tablename__ = "reports"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    conversation_id = db.Column(db.String(36), db.ForeignKey("conversations.id"), nullable=True)
+    anchor_message_id = db.Column(db.Integer, db.ForeignKey("messages.id"), nullable=True)
+    assessment_id = db.Column(db.Integer, db.ForeignKey("assessments.id"), nullable=True)
+    report_url = db.Column(db.Text, nullable=True)  # link to PDF / file in storage
+    format = db.Column(db.String(16), default="pdf")
+    version = db.Column(db.Integer, default=1)
+    generated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    user = db.relationship("User", backref="reports", lazy=True)
+    conversation = db.relationship("Conversation", backref="reports", lazy=True)
+    assessment = db.relationship("Assessment", backref="reports", lazy=True)
+
+class Conversation(db.Model):
+    __tablename__ = "conversations"
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    title = db.Column(db.String(200))
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    messages = db.relationship("Message", backref="conversation", lazy=True)
+
+class Message(db.Model):
+    __tablename__ = "messages"
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.String(36), db.ForeignKey("conversations.id"))
+    sender = db.Column(db.String(32))  # 'user' / 'assistant' / 'system'
+    content = db.Column(db.Text)
+    llm_meta = db.Column(db.JSON)  # model name, tokens, etc.
+    report_id = db.Column(db.Integer, db.ForeignKey("reports.id"), nullable=True)  # new
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+class Summary(db.Model):
+    __tablename__ = "summaries"
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.String(36), db.ForeignKey("conversations.id"), unique=True)
+    summary_text = db.Column(db.Text)
+    version = db.Column(db.Integer, default=1)
+    last_updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+class LearnContent(db.Model):
+    __tablename__ = "learn_content"
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(300))
+    type = db.Column(db.String(32))  
+    url = db.Column(db.Text)
+    summary = db.Column(db.Text)
+    tags = db.Column(db.JSON)  
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+class Consultant(db.Model):
+    __tablename__ = "consultants"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200))
+    speciality = db.Column(db.String(100))
+    phone = db.Column(db.String(50))
+    place_id = db.Column(db.String(200))
+    address = db.Column(db.Text)
+    lat = db.Column(db.Float)
+    lng = db.Column(db.Float)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+class Contact(db.Model):
+    __tablename__ = "contacts"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    name = db.Column(db.String(200))
+    email = db.Column(db.String(320))
+    message = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
