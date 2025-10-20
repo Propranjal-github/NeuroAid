@@ -211,3 +211,49 @@ def login():
 def me():
     u = g.current_user
     return jsonify({"id": u.id, "email": u.email, "display_name": u.display_name, "role": u.role})
+
+# Google OAuth endpoints (if configured)
+@app.route("/auth/google/login")
+def google_login():
+    if "google" not in oauth._clients:
+        return jsonify({"error": "Google OAuth not configured"}), 400
+    redirect_uri = url_for("google_callback", _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+@app.route("/auth/google/callback")
+def google_callback():
+    if "google" not in oauth._clients:
+        return jsonify({"error": "Google OAuth not configured"}), 400
+    token = oauth.google.authorize_access_token()
+    if not token:
+        return jsonify({"error": "failed to get token"}), 400
+    userinfo = oauth.google.parse_id_token(token)
+    if not userinfo:
+        userinfo = oauth.google.get("userinfo").json()
+    google_sub = userinfo.get("sub")
+    email = userinfo.get("email")
+    email_verified = userinfo.get("email_verified", False)
+    name = userinfo.get("name") or userinfo.get("given_name")
+    user = None
+    if google_sub:
+        user = User.query.filter_by(google_id=google_sub).first()
+    if not user and email:
+        existing = User.query.filter_by(email=email).first()
+        if existing:
+            if email_verified:
+                existing.google_id = google_sub
+                existing.email_verified = True
+                if not existing.display_name and name:
+                    existing.display_name = name
+                db.session.add(existing)
+                db.session.commit()
+                user = existing
+            else:
+                return jsonify({"error": "link_required", "message": "Account exists with this email; sign in to link."}), 200
+    if not user:
+        user = User(email=email, google_id=google_sub, display_name=name, email_verified=email_verified)
+        db.session.add(user)
+        db.session.commit()
+    token = create_jwt(user.id)
+    # Return JSON; frontend should store token securely
+    return jsonify({"token": token, "user": {"id": user.id, "email": user.email, "display_name": user.display_name}})
