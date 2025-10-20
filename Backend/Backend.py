@@ -465,3 +465,41 @@ def learn(topic):
     for r in rows:
         out.append({"id": r.id, "title": r.title, "type": r.type, "url": r.url, "summary": r.summary, "tags": r.tags})
     return jsonify({"items": out})
+
+# ---------- Route: Consultants (Google Places stub) ----------
+@app.route("/consultants", methods=["GET"])
+@auth_required
+def consultants():
+    """
+    Query params: lat, lng, q (optional)
+    MVP: if GOOGLE_PLACES_API_KEY set, call Google Places Nearby Search.
+    Otherwise return a mocked response.
+    """
+    lat = request.args.get("lat")
+    lng = request.args.get("lng")
+    q = request.args.get("q", "psychiatrist")
+    if not lat or not lng:
+        return jsonify({"error": "lat and lng required"}), 400
+
+    if GOOGLE_PLACES_API_KEY:
+        # Replace/extend: implement server-side Google Places call, handle paging, JSON parse
+        url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+        params = {"location": f"{lat},{lng}", "keyword": q, "radius": 5000, "key": GOOGLE_PLACES_API_KEY}
+        resp = requests.get(url, params=params, timeout=10)
+        data = resp.json()
+        results = []
+        for r in data.get("results", [])[:10]:
+            results.append({
+                "name": r.get("name"),
+                "vicinity": r.get("vicinity"),
+                "place_id": r.get("place_id"),
+                "types": r.get("types")
+            })
+        return jsonify({"results": results})
+    else:
+        # mocked
+        mocked = [
+            {"name": "Dr. A Sharma", "speciality": "Psychiatrist", "distance_m": 1200, "lat": float(lat) + 0.005, "lng": float(lng) - 0.003, "phone": "+91-99999", "place_id": "mock1"},
+            {"name": "Ms. R. Patel", "speciality": "Clinical Psychologist", "distance_m": 3200, "lat": float(lat) - 0.004, "lng": float(lng) + 0.002, "phone": "+91-88888", "place_id": "mock2"}
+        ]
+        return jsonify({"results": mocked})
