@@ -503,3 +503,24 @@ def consultants():
             {"name": "Ms. R. Patel", "speciality": "Clinical Psychologist", "distance_m": 3200, "lat": float(lat) - 0.004, "lng": float(lng) + 0.002, "phone": "+91-88888", "place_id": "mock2"}
         ]
         return jsonify({"results": mocked})
+    
+# ---------- Route: Contact ----------
+@app.route("/contact", methods=["POST"])
+@auth_required
+def contact():
+    data = request.json or {}
+    message = data.get("message")
+    name = data.get("name") or g.current_user.display_name
+    email = data.get("email") or g.current_user.email
+    if not message:
+        return jsonify({"error": "message required"}), 400
+    c = Contact(user_id=g.current_user.id, name=name, email=email, message=message)
+    db.session.add(c)
+    db.session.commit()
+    # Optionally send email to admin here (not implemented)
+    return jsonify({"status": "ok", "id": c.id}), 201
+
+# ---------- Health ----------
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok", "time": datetime.datetime.utcnow().isoformat()})
