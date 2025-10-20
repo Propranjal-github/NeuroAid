@@ -450,3 +450,18 @@ def submit_test():
     db.session.add(ass)
     db.session.commit()
     return jsonify({"assessment_id": ass.id, "type": t, "score": s, "confidence": conf, "interpretation": interp}), 201
+
+# ---------- Route: Learn ----------
+@app.route("/learn/<string:topic>", methods=["GET"])
+@auth_required
+def learn(topic):
+    # simple tag search
+    tag = topic.lower()
+    rows = LearnContent.query.filter(LearnContent.tags.contains([tag])).order_by(LearnContent.created_at.desc()).limit(20).all()
+    # fallback: return all if none found
+    if not rows:
+        rows = LearnContent.query.order_by(LearnContent.created_at.desc()).limit(20).all()
+    out = []
+    for r in rows:
+        out.append({"id": r.id, "title": r.title, "type": r.type, "url": r.url, "summary": r.summary, "tags": r.tags})
+    return jsonify({"items": out})
