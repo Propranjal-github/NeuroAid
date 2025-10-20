@@ -524,3 +524,22 @@ def contact():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "time": datetime.datetime.utcnow().isoformat()})
+
+
+# ---------- Bootstrap ----------
+if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
+        # add some sample learn content if empty
+        if LearnContent.query.count() == 0:
+            sample = LearnContent(
+                title="Understanding ADHD - Short Overview",
+                type="article",
+                url="https://example.com/adhd-overview",
+                summary="Short overview article about ADHD symptoms and non-medical coping strategies.",
+                tags=["adhd","attention"]
+            )
+            db.session.add(sample)
+            db.session.commit()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
