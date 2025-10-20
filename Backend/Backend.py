@@ -176,6 +176,59 @@ def auth_required(f):
         return f(*args, **kwargs)
     return wrapper
 
+# ---------- Scoring functions (MVP) ----------
+def score_asrs6(answers: dict):
+    keys = [f"q{i}" for i in range(1, 7)]
+    s = sum(int(answers.get(k, 0)) for k in keys)
+    conf = min(1.0, max(0.05, (s / 24) * 1.2))
+    if s >= 17:
+        interp = "High number of ADHD-like symptoms. Consider formal evaluation."
+    elif s >= 11:
+        interp = "Moderate ADHD-like symptoms."
+    else:
+        interp = "Low ADHD-like symptoms according to ASRS-6."
+    return s, conf, interp
+
+def score_phq2(answers: dict):
+    s = int(answers.get("q1", 0)) + int(answers.get("q2", 0))
+    conf = min(1.0, max(0.05, (s / 6) * 1.1))
+    if s >= 3:
+        interp = "Positive screen for depressive symptoms. Consider full PHQ-9 or clinical consult."
+    else:
+        interp = "Low depressive symptomatology on PHQ-2."
+    return s, conf, interp
+
+SCORE_FUNCS = {
+    "ADHD_ASRS6": score_asrs6,
+    "PHQ2": score_phq2
+}
+
+# ---------- LLM (Gemini) stub: replace with real call ----------
+def call_gemini(prompt: str, max_tokens: int = 512) -> dict:
+    """
+    Replace this stub with your actual Gemini API call.
+    Expected return: dict with keys {'response': str, 'summary': str, 'meta': {...}}
+    For now this returns a mocked helpful reply and summary.
+    """
+    # Example: use requests to call Gemini REST endpoint or Google client
+    # See Gemini docs and authentication; do not call from frontend.
+    mocked_response = "I hear you. Try short focused sessions, externalize reminders, and seek professional help if interference continues. This is a screening tool and not a clinical diagnosis. For concerns, consult a professional."
+    mocked_summary = "User reports concentration problems and repetitive checking; recommended short focus sessions, external reminders, and clinician consult if persistent."
+    return {"response": mocked_response, "summary": mocked_summary, "meta": {"report_flag": False, "injection_detected": False}}
+
+# ---------- Prompt-injection heuristic ----------
+INJECTION_PATTERNS = [
+    "ignore previous", "ignore all previous", "forget previous", "disregard prior",
+    "override instructions", "do not follow", "from now on you are", "run this code",
+    "execute the following", "<script", "erase history", "delete this message"
+]
+def is_injection(text: str) -> bool:
+    t = (text or "").lower()
+    for p in INJECTION_PATTERNS:
+        if p in t:
+            return True
+    return False
+
 # ---------- Routes: Auth ----------
 @app.route("/auth/signup", methods=["POST"])
 def signup():
@@ -355,3 +408,45 @@ def diagnosis():
     db.session.add(ass)
     db.session.commit()
     return jsonify({"assessment_id": ass.id, "interpretation": ass.interpretation, "confidence": ass.confidence, "raw": llm_out})
+
+# ---------- Routes: Tests ----------
+@app.route("/tests/<string:disorder>", methods=["GET"])
+@auth_required
+def get_test(disorder):
+    # Return question set for requested disorder (MVP: ASRS6, PHQ2)
+    disorder = disorder.upper()
+    if disorder == "ADHD" or disorder == "ASRS6":
+        q = {"type": "ADHD_ASRS6", "questions": [
+            {"id":"q1","text":"How often do you have trouble wrapping up the final details of a project? (0-4)"},
+            {"id":"q2","text":"How often do you have difficulty getting things in order when you have to do a task that requires organization? (0-4)"},
+            {"id":"q3","text":"How often do you have problems remembering appointments or obligations? (0-4)"},
+            {"id":"q4","text":"When you have a task that requires a lot of thought, how often do you avoid it? (0-4)"},
+            {"id":"q5","text":"How often are you distracted by activity or noise around you? (0-4)"},
+            {"id":"q6","text":"How often do you leave your seat in meetings or other situations where remaining seated is expected? (0-4)"}
+        ]}
+        return jsonify(q)
+    elif disorder == "DEPRESSION" or disorder == "PHQ2":
+        q = {"type":"PHQ2", "questions":[
+            {"id":"q1","text":"Little interest or pleasure in doing things? (0-3)"},
+            {"id":"q2","text":"Feeling down, depressed, or hopeless? (0-3)"}
+        ]}
+        return jsonify(q)
+    else:
+        return jsonify({"error":"unknown test type"}), 404
+
+@app.route("/tests/submit", methods=["POST"])
+@auth_required
+def submit_test():
+    """
+    Body: {"type":"ADHD_ASRS6"|"PHQ2", "answers": { "q1": int, ... } }
+    """
+    data = request.json or {}
+    t = data.get("type")
+    answers = data.get("answers", {})
+    if not t or t not in SCORE_FUNCS:
+        return jsonify({"error": "unknown or missing test type"}), 400
+    s, conf, interp = SCORE_FUNCS[t](answers)
+    ass = Assessment(user_id=g.current_user.id, type=t, answers=answers, score=s, confidence=conf, interpretation=interp)
+    db.session.add(ass)
+    db.session.commit()
+    return jsonify({"assessment_id": ass.id, "type": t, "score": s, "confidence": conf, "interpretation": interp}), 201
