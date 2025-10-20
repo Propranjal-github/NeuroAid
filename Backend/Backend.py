@@ -332,3 +332,26 @@ def chat():
         "summary": summary_text,
         "meta": llm_result.get("meta", {})
     })
+
+# ---------- Route: Diagnosis ----------
+@app.route("/diagnosis", methods=["POST"])
+@auth_required
+def diagnosis():
+    """
+    Body: {"symptoms": "free text describing symptoms"}
+    Returns: predicted disorder, confidence, explanation (via LLM stub)
+    """
+    data = request.json or {}
+    symptoms = (data.get("symptoms") or "").strip()
+    if not symptoms:
+        return jsonify({"error": "symptoms required"}), 400
+    if is_injection(symptoms):
+        return jsonify({"injection_detected": True}), 400
+
+    prompt = f"User symptoms: {symptoms}\nAnswer with likely condition(s), short explanation, and confidence (0-1). Include recommended next step."
+    llm_out = call_gemini(prompt)
+    # store as a lightweight assessment record
+    ass = Assessment(user_id=g.current_user.id, type="DIAGNOSIS_LLM", answers={"symptoms": symptoms}, score=0.0, confidence=llm_out.get("meta", {}).get("confidence", 0.0), interpretation=llm_out.get("response"))
+    db.session.add(ass)
+    db.session.commit()
+    return jsonify({"assessment_id": ass.id, "interpretation": ass.interpretation, "confidence": ass.confidence, "raw": llm_out})
