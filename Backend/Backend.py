@@ -257,3 +257,78 @@ def google_callback():
     token = create_jwt(user.id)
     # Return JSON; frontend should store token securely
     return jsonify({"token": token, "user": {"id": user.id, "email": user.email, "display_name": user.display_name}})
+
+# ---------- Route: Chat ----------
+@app.route("/chat", methods=["POST"])
+@auth_required
+def chat():
+    """
+    Body:
+    {
+      "conversation_id": optional string,
+      "message": "user message"
+    }
+    Returns assistant reply + updated summary + conversation id
+    """
+    data = request.json or {}
+    message_text = (data.get("message") or "").strip()
+    if not message_text:
+        return jsonify({"error": "message required"}), 400
+
+    # injection check
+    if is_injection(message_text):
+        return jsonify({"injection_detected": True}), 400
+
+    conv_id = data.get("conversation_id")
+    if conv_id:
+        conv = Conversation.query.get(conv_id)
+        if not conv or conv.user_id != g.current_user.id:
+            return jsonify({"error": "conversation not found"}), 404
+    else:
+        conv = Conversation(user_id=g.current_user.id)
+        db.session.add(conv)
+        db.session.commit()
+
+    # store user message
+    m = Message(conversation_id=conv.id, sender="user", content=message_text)
+    db.session.add(m)
+    db.session.commit()
+
+    # fetch last summary (if any) and last few messages
+    summary_obj = Summary.query.filter_by(conversation_id=conv.id).first()
+    previous_summary = summary_obj.summary_text if summary_obj else ""
+    last_msgs = Message.query.filter_by(conversation_id=conv.id).order_by(Message.created_at.desc()).limit(6).all()
+    last_msgs = list(reversed(last_msgs))  # chronological
+
+    # build prompt/context for LLM
+    prompt = f"Previous summary: {previous_summary}\n\nRecent messages:\n"
+    for msg in last_msgs:
+        prompt += f"{msg.sender}: {msg.content}\n"
+    prompt += f"\nUser query: \"{message_text}\"\n\nRespond helpfully and produce a short summary."
+
+    # call LLM (stub)
+    llm_result = call_gemini(prompt)
+    assistant_text = llm_result.get("response")
+    summary_text = llm_result.get("summary")
+
+    # store assistant message
+    ma = Message(conversation_id=conv.id, sender="assistant", content=assistant_text, llm_meta=llm_result.get("meta"))
+    db.session.add(ma)
+    db.session.commit()
+
+    # update or create summary (rolling)
+    if summary_obj:
+        summary_obj.summary_text = summary_text
+        summary_obj.version = (summary_obj.version or 1) + 1
+        summary_obj.last_updated_at = datetime.datetime.utcnow()
+    else:
+        summary_obj = Summary(conversation_id=conv.id, summary_text=summary_text)
+        db.session.add(summary_obj)
+    db.session.commit()
+
+    return jsonify({
+        "conversation_id": conv.id,
+        "response": assistant_text,
+        "summary": summary_text,
+        "meta": llm_result.get("meta", {})
+    })
