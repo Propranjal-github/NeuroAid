@@ -175,3 +175,39 @@ def auth_required(f):
         g.current_user = user
         return f(*args, **kwargs)
     return wrapper
+
+# ---------- Routes: Auth ----------
+@app.route("/auth/signup", methods=["POST"])
+def signup():
+    data = request.json or {}
+    email = data.get("email")
+    password = data.get("password")
+    name = data.get("display_name")
+    if not email or not password:
+        return jsonify({"error": "email and password required"}), 400
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "email already registered"}), 400
+    user = User(email=email, password_hash=generate_password_hash(password), display_name=name, email_verified=False)
+    db.session.add(user)
+    db.session.commit()
+    token = create_jwt(user.id)
+    return jsonify({"token": token, "user": {"id": user.id, "email": user.email, "display_name": user.display_name}}), 201
+
+@app.route("/auth/login", methods=["POST"])
+def login():
+    data = request.json or {}
+    email = data.get("email")
+    password = data.get("password")
+    if not email or not password:
+        return jsonify({"error": "email and password required"}), 400
+    user = User.query.filter_by(email=email).first()
+    if not user or not user.password_hash or not check_password_hash(user.password_hash, password):
+        return jsonify({"error": "invalid credentials"}), 401
+    token = create_jwt(user.id)
+    return jsonify({"token": token, "user": {"id": user.id, "email": user.email, "display_name": user.display_name}})
+
+@app.route("/auth/me", methods=["GET"])
+@auth_required
+def me():
+    u = g.current_user
+    return jsonify({"id": u.id, "email": u.email, "display_name": u.display_name, "role": u.role})
