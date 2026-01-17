@@ -5,3 +5,4 @@ werkzeug>=2.2
 python-dotenv>=1.0
 Authlib>=1.2
 Requests>=2.31
+psycopg2-binary>=2.9.11
