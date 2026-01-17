@@ -280,7 +280,7 @@ def google_callback():
     token = oauth.google.authorize_access_token()
     if not token:
         return jsonify({"error": "failed to get token"}), 400
-    userinfo = oauth.google.parse_id_token(token)
+    userinfo = oauth.google.userinfo()
     if not userinfo:
         userinfo = oauth.google.get("userinfo").json()
     google_sub = userinfo.get("sub")
