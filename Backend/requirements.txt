@@ -4,3 +4,4 @@ PyJWT>=2.8
 werkzeug>=2.2
 python-dotenv>=1.0
 Authlib>=1.2
+Requests>=2.31
