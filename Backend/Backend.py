@@ -11,6 +11,7 @@ import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
 import requests
 from dotenv import load_dotenv
+from urllib.parse import urlencode
 
 load_dotenv()
 
@@ -30,6 +31,10 @@ GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", None)
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,   # ✅ detects dead connections
+    "pool_recycle": 300,     # ✅ refresh every 5 minutes
+}
 app.config["SECRET_KEY"] = APP_SECRET
 
 db = SQLAlchemy(app)
@@ -282,7 +287,7 @@ def google_callback():
         return jsonify({"error": "failed to get token"}), 400
     userinfo = oauth.google.userinfo()
     if not userinfo:
-        userinfo = oauth.google.get("userinfo").json()
+        userinfo = oauth.google.get("userinfo")
     google_sub = userinfo.get("sub")
     email = userinfo.get("email")
     email_verified = userinfo.get("email_verified", False)
@@ -307,9 +312,12 @@ def google_callback():
         user = User(email=email, google_id=google_sub, display_name=name, email_verified=email_verified)
         db.session.add(user)
         db.session.commit()
-    token = create_jwt(user.id)
+    jwt_token = create_jwt(user.id)
     # Return JSON; frontend should store token securely
-    return jsonify({"token": token, "user": {"id": user.id, "email": user.email, "display_name": user.display_name}})
+    params = urlencode({
+        "token": jwt_token
+    })
+    return redirect(f"{FRONTEND_URL}/oauth/callback?{params}")
 
 # ---------- Route: Chat ----------
 @app.route("/chat", methods=["POST"])
