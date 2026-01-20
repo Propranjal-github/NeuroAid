@@ -151,7 +151,7 @@ class Contact(db.Model):
 # ---------- Utilities: JWT / Auth ----------
 def create_jwt(user_id: int):
     payload = {
-        "sub": user_id,
+        "sub": str(user_id),
         "iat": datetime.datetime.utcnow().timestamp(),
         "exp": (datetime.datetime.utcnow() + datetime.timedelta(hours=JWT_EXP_HOURS)).timestamp()
     }
