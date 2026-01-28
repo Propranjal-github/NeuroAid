@@ -211,17 +211,69 @@ SCORE_FUNCS = {
 }
 
 # ---------- LLM (Gemini) stub: replace with real call ----------
-def call_gemini(prompt: str, max_tokens: int = 512) -> dict:
-    """
-    Replace this stub with your actual Gemini API call.
-    Expected return: dict with keys {'response': str, 'summary': str, 'meta': {...}}
-    For now this returns a mocked helpful reply and summary.
-    """
-    # Example: use requests to call Gemini REST endpoint or Google client
-    # See Gemini docs and authentication; do not call from frontend.
-    mocked_response = "I hear you. Try short focused sessions, externalize reminders, and seek professional help if interference continues. This is a screening tool and not a clinical diagnosis. For concerns, consult a professional."
-    mocked_summary = "User reports concentration problems and repetitive checking; recommended short focus sessions, external reminders, and clinician consult if persistent."
-    return {"response": mocked_response, "summary": mocked_summary, "meta": {"report_flag": False, "injection_detected": False}}
+CHAT_SYSTEM_PROMPT = """
+You are a supportive mental health conversation assistant.
+
+Rules:
+- Be empathetic, warm, and conversational.
+- Reflect the user's feelings before giving suggestions.
+- Ask clarifying questions when appropriate.
+- Do NOT diagnose or label conditions.
+- Do NOT say "this is a screening tool" or "not a diagnosis".
+- Only mention professional help if the user asks or expresses distress.
+
+Focus on understanding, not conclusions.
+"""
+DIAGNOSIS_SYSTEM_PROMPT = """
+You are a mental health screening assistant.
+
+Rules:
+- Analyze the described symptoms.
+- Suggest possible conditions (if applicable).
+- Provide a confidence score (0–1).
+- Clearly state this is NOT a clinical diagnosis.
+- Recommend next steps (test, chat, professional help).
+- Be factual and structured.
+
+Do NOT ask follow-up questions.
+"""
+
+def call_llm(prompt: str, mode: str = "chat", max_tokens: int = 512) -> dict:
+    system_prompt = CHAT_SYSTEM_PROMPT if mode == "chat" else DIAGNOSIS_SYSTEM_PROMPT
+
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": f"{system_prompt}\n\nUser input:\n{prompt}"}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature": 0.7 if mode == "chat" else 0.3
+        }
+    }
+
+    resp = requests.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
+        params={"key": GEMINI_API_KEY},
+        json=payload,
+        timeout=20
+    )
+
+    data = resp.json()
+    text = data["candidates"][0]["content"]["parts"][0]["text"]
+
+    return {
+        "response": text,
+        "summary": text[:300],  # you can later summarize properly
+        "meta": {
+            "mode": mode,
+            "model": "gemini-pro"
+        }
+    }
 
 # ---------- Prompt-injection heuristic ----------
 INJECTION_PATTERNS = [
@@ -370,7 +422,7 @@ def chat():
     prompt += f"\nUser query: \"{message_text}\"\n\nRespond helpfully and produce a short summary."
 
     # call LLM (stub)
-    llm_result = call_gemini(prompt)
+    llm_result = call_llm(prompt, mode="chat")
     assistant_text = llm_result.get("response")
     summary_text = llm_result.get("summary")
 
@@ -412,7 +464,7 @@ def diagnosis():
         return jsonify({"injection_detected": True}), 400
 
     prompt = f"User symptoms: {symptoms}\nAnswer with likely condition(s), short explanation, and confidence (0-1). Include recommended next step."
-    llm_out = call_gemini(prompt)
+    llm_out = call_llm(prompt, mode="diagnosis")
     # store as a lightweight assessment record
     ass = Assessment(user_id=g.current_user.id, type="DIAGNOSIS_LLM", answers={"symptoms": symptoms}, score=0.0, confidence=llm_out.get("meta", {}).get("confidence", 0.0), interpretation=llm_out.get("response"))
     db.session.add(ass)
