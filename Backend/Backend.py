@@ -270,7 +270,7 @@ def call_llm(prompt: str, mode: str = "chat", max_tokens: int = 512) -> dict:
     }
 
     resp = requests.post(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
         params={"key": GEMINI_API_KEY},
         json=payload,
         timeout=20
@@ -284,7 +284,7 @@ def call_llm(prompt: str, mode: str = "chat", max_tokens: int = 512) -> dict:
         "summary": text[:300],  # you can later summarize properly
         "meta": {
             "mode": mode,
-            "model": "gemini-pro"
+            "model": "gemini-2.5-flash"
         }
     }
 
