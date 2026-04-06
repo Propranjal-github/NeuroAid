@@ -461,6 +461,41 @@ def chat():
         "meta": llm_result.get("meta", {})
     })
 
+@app.route("/chat/history", methods=["GET"])
+@auth_required
+def chat_history():
+    conversations = Conversation.query.filter_by(user_id=g.current_user.id).order_by(Conversation.created_at.desc()).all()
+    results = []
+    for c in conversations:
+        s = Summary.query.filter_by(conversation_id=c.id).first()
+        results.append({
+            "id": c.id,
+            "title": c.title or "Chat Session",
+            "created_at": c.created_at.isoformat() + "Z",
+            "last_updated_at": s.last_updated_at.isoformat() + "Z" if s else c.created_at.isoformat() + "Z",
+            "summary_snippet": s.summary_text[:100] + "..." if s and s.summary_text else ""
+        })
+    results.sort(key=lambda x: x["last_updated_at"], reverse=True)
+    return jsonify({"conversations": results})
+
+@app.route("/chat/history/<string:conv_id>", methods=["GET"])
+@auth_required
+def chat_history_detail(conv_id):
+    conv = Conversation.query.get(conv_id)
+    if not conv or conv.user_id != g.current_user.id:
+        return jsonify({"error": "conversation not found"}), 404
+    
+    messages = Message.query.filter_by(conversation_id=conv.id).order_by(Message.created_at.asc()).all()
+    results = []
+    for m in messages:
+        results.append({
+            "id": m.id,
+            "sender": m.sender,
+            "content": m.content,
+            "created_at": m.created_at.isoformat() + "Z"
+        })
+    return jsonify({"messages": results})
+
 # ---------- Route: Diagnosis ----------
 @app.route("/diagnosis", methods=["POST"])
 @auth_required
