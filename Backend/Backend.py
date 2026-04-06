@@ -432,12 +432,28 @@ def chat():
     prompt = f"Previous summary: {previous_summary}\n\nRecent messages:\n"
     for msg in last_msgs:
         prompt += f"{msg.sender}: {msg.content}\n"
-    prompt += f"\nUser query: \"{message_text}\"\n\nRespond helpfully and produce a short summary."
+    prompt += f"\nUser query: \"{message_text}\"\n\nRespond helpfully and produce a short summary at the very end. You MUST prefix the summary precisely with the exact string '###SUMMARY###'."
 
     # call LLM (stub)
     llm_result = call_llm(prompt, mode="chat")
-    assistant_text = llm_result.get("response")
-    summary_text = llm_result.get("summary")
+    raw_text = llm_result.get("response", "")
+    
+    assistant_text = raw_text
+    summary_text = llm_result.get("summary", "")
+
+    # Hide the summary output from the main dialogue UI using the explicit delimiter
+    if "###SUMMARY###" in raw_text:
+        parts = raw_text.split("###SUMMARY###")
+        assistant_text = parts[0].replace("---", "").strip()
+        summary_text = parts[1].strip()
+    elif "**Summary:**" in raw_text:
+        parts = raw_text.split("**Summary:**")
+        assistant_text = parts[0].replace("---", "").strip()
+        summary_text = parts[1].strip()
+    elif "**Short Summary:**" in raw_text:
+        parts = raw_text.split("**Short Summary:**")
+        assistant_text = parts[0].replace("---", "").strip()
+        summary_text = parts[1].strip()
 
     # store assistant message
     ma = Message(conversation_id=conv.id, sender="assistant", content=assistant_text, llm_meta=llm_result.get("meta"))
@@ -561,16 +577,41 @@ def submit_test():
     db.session.commit()
     return jsonify({"assessment_id": ass.id, "type": t, "score": s, "confidence": conf, "interpretation": interp}), 201
 
+# ---------- Route: Reports ----------
+@app.route("/reports", methods=["GET"])
+@auth_required
+def get_reports():
+    assessments = Assessment.query.filter_by(user_id=g.current_user.id).order_by(Assessment.created_at.desc()).all()
+    out = []
+    for a in assessments:
+        title = "Diagnostic Analysis" if a.type == "DIAGNOSIS_LLM" else f"{a.type.replace('_', ' ')} Report"
+        out.append({
+            "id": a.id,
+            "title": title,
+            "date": a.created_at.isoformat() + "Z",
+            "score": a.score,
+            "type": a.type,
+            "confidence": a.confidence
+        })
+    return jsonify({"reports": out})
+
 # ---------- Route: Learn ----------
 @app.route("/learn/<string:topic>", methods=["GET"])
 @auth_required
 def learn(topic):
     # simple tag search
     tag = topic.lower()
-    rows = LearnContent.query.filter(LearnContent.tags.contains([tag])).order_by(LearnContent.created_at.desc()).limit(20).all()
+    all_rows = LearnContent.query.order_by(LearnContent.created_at.desc()).all()
+    
+    # Filter in python to avoid SQLite JSON Compilation errors
+    rows = [r for r in all_rows if r.tags and tag in [t.lower() for t in r.tags]]
+    
     # fallback: return all if none found
     if not rows:
-        rows = LearnContent.query.order_by(LearnContent.created_at.desc()).limit(20).all()
+        rows = all_rows[:20]
+    else:
+        rows = rows[:20]
+        
     out = []
     for r in rows:
         out.append({"id": r.id, "title": r.title, "type": r.type, "url": r.url, "summary": r.summary, "tags": r.tags})
@@ -641,15 +682,60 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
         # add some sample learn content if empty
-        if LearnContent.query.count() == 0:
-            sample = LearnContent(
-                title="Understanding ADHD - Short Overview",
-                type="article",
-                url="https://example.com/adhd-overview",
-                summary="Short overview article about ADHD symptoms and non-medical coping strategies.",
-                tags=["adhd","attention"]
-            )
-            db.session.add(sample)
+        if LearnContent.query.count() < 5:
+            LearnContent.query.delete()
+            articles = [
+                LearnContent(
+                    title="Understanding ADHD: A Comprehensive Guide",
+                    type="article",
+                    url="https://www.nimh.nih.gov/health/topics/attention-deficit-hyperactivity-disorder-adhd",
+                    summary="Learn about the signs, symptoms, and treatments for Attention-Deficit/Hyperactivity Disorder (ADHD) by the NIMH.",
+                    tags=["adhd", "attention", "focus"]
+                ),
+                LearnContent(
+                    title="Managing Depression: Recognizing the Signs",
+                    type="video",
+                    url="https://www.youtube.com/watch?v=z-IR48Mb3W0",
+                    summary="An educational video detailing the hidden signs of depression and how to seek help effectively.",
+                    tags=["depression", "mental health", "mood"]
+                ),
+                LearnContent(
+                    title="Anxiety Disorders: Types and Therapies",
+                    type="article",
+                    url="https://www.mayoclinic.org/diseases-conditions/anxiety/symptoms-causes/syc-20350961",
+                    summary="Detailed breakdown of Generalized Anxiety Disorder, Panic Disorder, and the benefits of CBT.",
+                    tags=["anxiety", "cbt", "therapy"]
+                ),
+                LearnContent(
+                    title="The Science of Sleep and Mental Health",
+                    type="podcast",
+                    url="https://hubermanlab.com/sleep-toolkit-tools-for-optimizing-sleep-and-sleep-wake-timing/",
+                    summary="A deep dive into how circadian rhythms and sleep hygiene immensely impact daily psychological health.",
+                    tags=["sleep", "lifestyle", "habits"]
+                ),
+                LearnContent(
+                    title="Mindfulness Meditation: Finding Your Center",
+                    type="article",
+                    url="https://www.mindful.org/meditation/mindfulness-getting-started/",
+                    summary="A practical starter guide to beginning your mindfulness and meditation journey to reduce daily stress.",
+                    tags=["mindfulness", "meditation", "stress"]
+                ),
+                LearnContent(
+                    title="Cognitive Behavioral Therapy (CBT) Explained",
+                    type="article",
+                    url="https://www.apa.org/ptsd-guideline/patients-and-families/cognitive-behavioral",
+                    summary="Understanding how Cognitive Behavioral Therapy aims to change negative thought patterns.",
+                    tags=["cbt", "therapy", "psychology"]
+                ),
+                LearnContent(
+                    title="Coping with PTSD: A Recovery Journey",
+                    type="article",
+                    url="https://www.ptsd.va.gov/understand/what/ptsd_basics.asp",
+                    summary="Basics of Post-Traumatic Stress Disorder, its triggers, and long-term coping mechanisms.",
+                    tags=["ptsd", "trauma", "recovery"]
+                )
+            ]
+            db.session.bulk_save_objects(articles)
             db.session.commit()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
