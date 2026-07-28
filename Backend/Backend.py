@@ -41,6 +41,10 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
 }
 app.config["SECRET_KEY"] = APP_SECRET
 
+# Required for cross-domain OAuth on modern browsers (e.g., Render backend + Vercel/Netlify frontend)
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+
 db = SQLAlchemy(app)
 oauth = OAuth(app)
 
