@@ -9,6 +9,7 @@ from flask_sqlalchemy import SQLAlchemy
 from authlib.integrations.flask_client import OAuth
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 import requests
 from dotenv import load_dotenv
 from urllib.parse import urlencode
@@ -30,6 +31,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", None)
 GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", None)
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 CORS(app,supports_credentials=True,resources={r"/*": {"origins": [FRONTEND_URL]}},allow_headers=["Content-Type", "Authorization"],)
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
